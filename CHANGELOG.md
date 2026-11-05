@@ -1,5 +1,19 @@
 # Changelog — can_simulator
 
+## 2026-11-04
+
+### Added
+- **Acks-required mode, to reproduce an isolated OBD port.** A 2024 Blazer recorded
+  through the listen-only dongle came back with each frame repeated back-to-back 4-10
+  times per millisecond (83% of frames copies, most seconds missing an ID). The likely
+  cause (⚠ unverified until a bench run reproduces it): that car's OBD port sits on its
+  own segment, so nothing acks and every frame is resent. The sim's `NO_ACK` mode hides
+  exactly this, so it can now require acks like a real ECU:
+  - `ack on` / `ack off` on the console (restarts the TWAI driver; shown by `status`);
+  - env `xiao_s3_ack` (`-D SIM_REQUIRE_ACK=1`) boots in that mode, for tests powered from
+    the dongle's port with no console.
+  The default build (`xiao_s3`) is unchanged: `NO_ACK`.
+
 ## 2026-06-11 (session 2)
 
 ### Fixed

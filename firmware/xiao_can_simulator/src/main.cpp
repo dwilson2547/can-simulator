@@ -16,6 +16,7 @@
  *   loop            toggle loop mode (default: on)
  *   speed <n>       playback speed multiplier (e.g. 0.5 / 1 / 2)
  *   status          show current config
+ *   ack on|off      require acknowledgements like a real ECU (default off)
  */
 
 #include <Arduino.h>
@@ -49,13 +50,33 @@ static int  gCmdLen = 0;
 void handleConsole();
 
 // ── CAN ───────────────────────────────────────────────────────────────────────
+// false (default): NO_ACK, a frame counts as sent without an acknowledgement, so the
+// replay is clean with only a listen-only dongle on the bus.
+// true: NORMAL, like a real ECU: an unacknowledged frame is resent until something
+// acks it. With only a listen-only dongle attached this reproduces a car whose OBD
+// port sits on its own segment with no other listener (2024 Blazer, 2026-11-04).
+// The env xiao_s3_ack builds with SIM_REQUIRE_ACK=1, for tests run with no console
+// (the sim powered from the dongle's port).
+#ifndef SIM_REQUIRE_ACK
+#define SIM_REQUIRE_ACK 0
+#endif
+static bool gRequireAck = SIM_REQUIRE_ACK;
+
 static bool canStart() {
-    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(kCanTx, kCanRx, TWAI_MODE_NO_ACK);
+    twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
+        kCanTx, kCanRx, gRequireAck ? TWAI_MODE_NORMAL : TWAI_MODE_NO_ACK);
     g.tx_queue_len = 32;  // default 5 is too shallow for burst replays
     twai_timing_config_t  t = TWAI_TIMING_CONFIG_500KBITS();
     twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     if (twai_driver_install(&g, &t, &f) != ESP_OK) return false;
     return twai_start() == ESP_OK;
+}
+
+static void canRestart() {
+    twai_stop();
+    twai_driver_uninstall();
+    Serial.printf("CAN: %s (%s)\n", canStart() ? "restarted" : "restart FAILED",
+                  gRequireAck ? "NORMAL, frames resent until acked" : "NO_ACK");
 }
 
 // Recover from bus-off if the error counter tripped. Called periodically during playback.
@@ -247,12 +268,17 @@ static void processCommand(const char* cmd) {
         gMaxGapUs = (ms > 0) ? (int32_t)(ms * 1000) : 1000000;
         Serial.printf("Max gap: %d ms\n", (int)(gMaxGapUs / 1000));
 
+    } else if (strcmp(cmd, "ack on") == 0 || strcmp(cmd, "ack off") == 0) {
+        gRequireAck = strcmp(cmd, "ack on") == 0;
+        canRestart();
+
     } else if (strcmp(cmd, "status") == 0) {
-        Serial.printf("file=%s  loop=%s  speed=%.2f  playing=%s\n",
+        Serial.printf("file=%s  loop=%s  speed=%.2f  playing=%s  ack=%s\n",
                       gFile[0] ? gFile : "(none)",
                       gLooping ? "on" : "off",
                       gSpeed,
-                      gPlaying ? "yes" : "no");
+                      gPlaying ? "yes" : "no",
+                      gRequireAck ? "required" : "not required");
         twai_status_info_t s;
         if (twai_get_status_info(&s) == ESP_OK) {
             const char* states[] = {"STOPPED","RUNNING","BUS_OFF","RECOVERING"};
@@ -269,6 +295,7 @@ static void processCommand(const char* cmd) {
         Serial.println("  loop            toggle loop mode");
         Serial.println("  speed <n>       playback speed multiplier");
         Serial.println("  maxgap <ms>     cap inter-frame gaps (default 1000)");
+        Serial.println("  ack on|off      require acks like a real ECU (default off)");
         Serial.println("  status          show current config");
 
     } else if (strlen(cmd) > 0) {
@@ -310,7 +337,7 @@ void setup() {
     if (!canStart()) {
         Serial.println("CAN: init failed");
     } else {
-        Serial.println("CAN: ready @ 500 kbps");
+        Serial.printf("CAN: ready @ 500 kbps (%s)\n", gRequireAck ? "NORMAL, acks required" : "NO_ACK");
     }
 
     Serial.println();
