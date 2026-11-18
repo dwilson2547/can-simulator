@@ -14,6 +14,9 @@
 - A `[stats]` line every 2 s during playback: frames queued, transmits refused (queue
   full or driver not running), TWAI state and error counters. This is what showed the
   stopped driver above: 1 frame queued, the rest refused, `state=STOPPED`.
+- `txtest` console command: stops playback and the TWAI driver, drives TXD high then
+  low by hand, and counts how often RXD reads low. A working transceiver echoes TXD
+  (0/1000 then 1000/1000). It needs no meter on the bench.
 
 ## 2026-11-04
 

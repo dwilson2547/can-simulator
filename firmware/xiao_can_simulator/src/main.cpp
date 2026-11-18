@@ -17,6 +17,7 @@
  *   speed <n>       playback speed multiplier (e.g. 0.5 / 1 / 2)
  *   status          show current config
  *   ack on|off      require acknowledgements like a real ECU (default off)
+ *   txtest          stop, drive TXD low/high by hand, check RXD echoes it
  */
 
 #include <Arduino.h>
@@ -317,6 +318,27 @@ static void processCommand(const char* cmd) {
                           s.tx_failed_count, s.rx_missed_count);
         }
 
+    } else if (strcmp(cmd, "txtest") == 0) {
+        // Drive TXD by hand with the TWAI driver off and read RXD back: a working
+        // transceiver echoes TXD (low = dominant), whatever else is on the bus.
+        gStopRequest = true;
+        gPlaying     = false;
+        twai_stop();
+        twai_driver_uninstall();
+        pinMode(kCanRx, INPUT);
+        pinMode(kCanTx, OUTPUT);
+        for (int level = 1; level >= 0; --level) {
+            digitalWrite(kCanTx, level);
+            delay(5);
+            int lows = 0;
+            for (int i = 0; i < 1000; ++i) lows += digitalRead(kCanRx) == LOW;
+            Serial.printf("txtest: TXD %s -> RXD low %d/1000 (want %s)\n",
+                          level ? "HIGH (recessive)" : "LOW (dominant)", lows,
+                          level ? "0" : "1000");
+        }
+        digitalWrite(kCanTx, HIGH);
+        canRestart();
+
     } else if (strcmp(cmd, "help") == 0) {
         Serial.println("  ls              list CSV files on SD");
         Serial.println("  play <file>     start playback");
@@ -326,6 +348,7 @@ static void processCommand(const char* cmd) {
         Serial.println("  maxgap <ms>     cap inter-frame gaps (default 1000)");
         Serial.println("  ack on|off      require acks like a real ECU (default off)");
         Serial.println("  status          show current config");
+        Serial.println("  txtest          stop, drive TXD by hand, check RXD echoes it");
 
     } else if (strlen(cmd) > 0) {
         Serial.printf("Unknown: '%s'  (type 'help')\n", cmd);
