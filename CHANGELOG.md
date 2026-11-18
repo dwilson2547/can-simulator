@@ -17,6 +17,7 @@
 - `txtest` console command: stops playback and the TWAI driver, drives TXD high then
   low by hand, and counts how often RXD reads low. A working transceiver echoes TXD
   (0/1000 then 1000/1000). It needs no meter on the bench.
+- `txlow` holds TXD low (dominant) for measuring with a meter; `txrelease` restarts CAN.
 
 ## 2026-11-04
 

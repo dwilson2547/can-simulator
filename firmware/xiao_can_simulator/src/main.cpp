@@ -339,6 +339,23 @@ static void processCommand(const char* cmd) {
         digitalWrite(kCanTx, HIGH);
         canRestart();
 
+    } else if (strcmp(cmd, "txlow") == 0) {
+        // Hold TXD low (dominant) for measuring with a meter; any next command
+        // releases it (txtest/ack restart the driver, or send "txrelease").
+        gStopRequest = true;
+        gPlaying     = false;
+        twai_stop();
+        twai_driver_uninstall();
+        pinMode(kCanRx, INPUT);
+        pinMode(kCanTx, OUTPUT);
+        digitalWrite(kCanTx, LOW);
+        Serial.printf("txlow: TXD held LOW, RXD reads %s. 'txrelease' to restart CAN\n",
+                      digitalRead(kCanRx) ? "HIGH" : "LOW");
+
+    } else if (strcmp(cmd, "txrelease") == 0) {
+        digitalWrite(kCanTx, HIGH);
+        canRestart();
+
     } else if (strcmp(cmd, "help") == 0) {
         Serial.println("  ls              list CSV files on SD");
         Serial.println("  play <file>     start playback");
@@ -349,6 +366,7 @@ static void processCommand(const char* cmd) {
         Serial.println("  ack on|off      require acks like a real ECU (default off)");
         Serial.println("  status          show current config");
         Serial.println("  txtest          stop, drive TXD by hand, check RXD echoes it");
+        Serial.println("  txlow           hold TXD low for a meter; txrelease restarts CAN");
 
     } else if (strlen(cmd) > 0) {
         Serial.printf("Unknown: '%s'  (type 'help')\n", cmd);
