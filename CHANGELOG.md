@@ -19,6 +19,14 @@
   (0/1000 then 1000/1000). It needs no meter on the bench.
 - `txlow` holds TXD low (dominant) for measuring with a meter; `txrelease` restarts CAN.
 
+### Hardware
+- **The sim's transceiver driver died (2026-11-17).** Every frame failed with bit
+  errors and the sim cycled bus-off, alone on its bus too. With `txlow` holding TXD
+  low: pin 1 (TXD) 0 V, VCC 5 V, S 0 V, but CANH and CANL both 2.5 V (no dominant), and
+  RXD high. CANH-CANL 120 Ω per end, 60 Ω on the bus, so no short. User's measurements.
+  RXD read 4.1 V on this board: above the S3's rated input, so VIO isn't setting RXD to
+  3.3 V here, whatever the wiring table says. Why it died is ⚠ unverified.
+
 ## 2026-11-04
 
 ### Added
