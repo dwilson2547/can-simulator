@@ -85,7 +85,11 @@ static void canRecoverIfNeeded() {
     if (twai_get_status_info(&s) != ESP_OK) return;
     if (s.state == TWAI_STATE_BUS_OFF) {
         twai_initiate_recovery();
-        Serial.println("[CAN] bus-off — recovery initiated");
+        Serial.printf("[CAN] bus-off (bus_err=%lu) — recovery initiated\n", s.bus_error_count);
+    } else if (s.state == TWAI_STATE_STOPPED) {
+        // Recovery ends in STOPPED, not RUNNING: the driver has to be started again,
+        // or every later transmit fails and the sim is silent until it reboots.
+        Serial.printf("[CAN] recovered — restart %s\n", twai_start() == ESP_OK ? "ok" : "FAILED");
     }
 }
 
@@ -179,6 +183,9 @@ static void playFile(const char* path) {
     double   prevTs     = 0.0;
     int64_t  wallNow    = 0;   // running wall-clock target in µs
     uint32_t count      = 0;
+    uint32_t queueFull  = 0;   // twai_transmit timed out: TX queue full
+    int64_t  lastServiceUs = 0;
+    int64_t  lastStatsUs   = esp_timer_get_time();
 
     while (f.available() && !gStopRequest) {
         // Read one line
@@ -230,13 +237,35 @@ static void playFile(const char* path) {
         }
 
         if (!gStopRequest) {
-            twai_transmit(&msg, pdMS_TO_TICKS(2));
-            count++;
+            if (twai_transmit(&msg, pdMS_TO_TICKS(2)) == ESP_OK) count++;
+            else queueFull++;  // queue full, or the driver isn't running
+        }
+
+        // A dense capture never leaves a gap over 5 ms, so the wait above never
+        // serves the console. Serve it here too, and report progress every 2 s,
+        // so a replay that isn't getting onto the bus is visible.
+        int64_t now = esp_timer_get_time();
+        if (now - lastServiceUs > 20000) {
+            lastServiceUs = now;
+            handleConsole();
+            canRecoverIfNeeded();
+        }
+        if (now - lastStatsUs > 2000000) {
+            lastStatsUs = now;
+            twai_status_info_t st;
+            if (twai_get_status_info(&st) == ESP_OK) {
+                const char* states[] = {"STOPPED", "RUNNING", "BUS_OFF", "RECOVERING"};
+                Serial.printf("[stats] queued=%u queue_full=%u state=%s tx_err=%lu "
+                              "rx_err=%lu tx_failed=%lu bus_err=%lu arb_lost=%lu\n",
+                              count, queueFull, st.state < 4 ? states[st.state] : "?",
+                              st.tx_error_counter, st.rx_error_counter,
+                              st.tx_failed_count, st.bus_error_count, st.arb_lost_count);
+            }
         }
     }
 
     f.close();
-    if (!gStopRequest) Serial.printf("■ done — %u frames sent\n", count);
+    if (!gStopRequest) Serial.printf("■ done — %u frames queued, %u dropped (queue full)\n", count, queueFull);
 }
 
 // ── Console ───────────────────────────────────────────────────────────────────

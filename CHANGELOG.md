@@ -1,5 +1,20 @@
 # Changelog — can_simulator
 
+## 2026-11-17
+
+### Fixed
+- **A bus-off left the sim silent until it was rebooted.** `twai_initiate_recovery()`
+  ends in `STOPPED`, not `RUNNING`, and nothing called `twai_start()` again, so every
+  later transmit failed. It is now restarted once recovery finishes (`[CAN] recovered`).
+- **The console was never served during a dense replay.** It only ran in gaps over 5 ms,
+  so `status` and `stop` went unanswered for as long as the capture had none. It now
+  also runs every 20 ms during playback.
+
+### Added
+- A `[stats]` line every 2 s during playback: frames queued, transmits refused (queue
+  full or driver not running), TWAI state and error counters. This is what showed the
+  stopped driver above: 1 frame queued, the rest refused, `state=STOPPED`.
+
 ## 2026-11-04
 
 ### Added
