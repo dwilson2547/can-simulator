@@ -1,12 +1,38 @@
 # Changelog — can_simulator
 
+## 2026-11-21
+
+### Added
+- Diagnostics, all run on the sim with the brand-new CJMCU-1051 module fitted on 2026-11-20:
+  - `txtest` reads the TX pad back. GPIO1 reads HIGH 200/200 driven high and LOW 20/20 driven
+    low, so the TX pin isn't damaged.
+  - `txtest od`: TX open-drain, so the transceiver's own TXD pull-up sets TXD HIGH (above the
+    S3's 3.3 V, up to its pad clamp), and times the pad's rise after each release: 433-812 ns,
+    20/20. A disconnected pad would stay low, so the D0-TXD wire reaches the module and
+    something there pulls it up. RXD still never read low (0/1000). So a 3.3 V TXD high
+    being under the chip's 0.7 x VCC threshold (3.5 V, NXP TJA1051 data sheet Rev. 9) is
+    unlikely to be the cause.
+  - `od on|off`: open-drain TX for playback too. A test, not a fix: the S3's pad clamp
+    carries the pull-up current, outside its rating.
+  - `wiretest`: drives D4 and reads D0, to check TX and RX aren't crossed at the module.
+    D0 never went low (0/1000, run twice): not crossed.
+
+### Hardware
+- **Still unfixed.** What the tests above leave: the module is powered (RXD beats D4's 22k
+  pull-down, so it's actively high), TXD toggles at the module, and the wires aren't crossed,
+  yet a new chip never echoes TXD on RXD within a few µs. The fault started 2026-11-18
+  between 02:36 (the sim working: CRX around 1.7 V under traffic) and 03:09, and has survived
+  every module since. So it's probably in what stayed the same: the bus wiring/connector, or
+  the module's 5 V/GND/S feed. ⚠ unverified until the module is tried with its CANH/CANL
+  lifted off the sim's bus.
+
 ## 2026-11-20
 
 ### Changed
 - **CAN RX moved from D1 (GPIO2) to D4 (GPIO5), through a 10k/22k divider.** With two
-  different transceiver chips, TXD, CANH and CANL read as expected for a driving chip under
-  `txsquare` (the user: "they all look good"; values not recorded), but RXD stayed at about 4 V and the S3 never read a
-  dominant bit, so every frame failed with bit errors. The 2026-11-04 build did the same,
+  different transceiver chips, the user checked TXD, CANH and CANL under `txsquare` ("they
+  all look good"; values not recorded, so whether CANH/CANL showed a driving chip is ⚠
+  unverified), but RXD stayed at about 4 V and the S3 never read a dominant bit, so every frame failed with bit errors. The 2026-11-04 build did the same,
   so it isn't the firmware. D1 was suspected, but **the move did not fix it**: on D4,
   `txtest` still never reads RXD low and the sim still cycles bus-off. So D1 is not
   shown damaged; the fault is at the transceiver module (RXD at the chip stayed about

@@ -5,7 +5,8 @@
  * Wiring:
  *   CAN  — D0(GPIO1)→TJA1051T TXD, D4(GPIO5)←TJA1051T RXD through a 10k/22k divider
  *          (moved off D1/GPIO2 2026-11-20, to add the divider)
- *        — TJA1051T S pin → GND, VCC → 5V, VIO → 3.3V
+ *        — TJA1051T S pin → GND, VCC → 5V. RXD's high measured 4.1 V (2026-11-18), so
+ *          the logic is VCC-referenced: TXD HIGH needs >= 3.5 V in spec
  *        — 120Ω across CANH/CANL on this end of the bench bus
  *   SD   — D8(GPIO7)→SCK, D9(GPIO8)←MISO, D10(GPIO9)→MOSI, D3(GPIO4)→CS
  *        — SD module VCC → 3.3V
@@ -18,7 +19,10 @@
  *   speed <n>       playback speed multiplier (e.g. 0.5 / 1 / 2)
  *   status          show current config
  *   ack on|off      require acknowledgements like a real ECU (default off)
- *   txtest          stop, drive TXD low/high by hand, check RXD echoes it
+ *   txtest [od]     stop, drive TXD low/high by hand, check RXD echoes it
+ *                   (od: TX open-drain, TXD HIGH from the transceiver's pull-up)
+ *   od on|off       TX pad open-drain for playback too (a threshold test, not a fix)
+ *   wiretest        check TX and RX aren't crossed at the module
  */
 
 #include <Arduino.h>
@@ -26,6 +30,7 @@
 #include <SPI.h>
 #include "driver/twai.h"
 #include "esp_timer.h"
+#include "esp_private/gpio.h"  // gpio_od_enable: changes only the pad driver, not the TWAI routing
 
 // ── Pins ──────────────────────────────────────────────────────────────────────
 static constexpr gpio_num_t kCanTx  = GPIO_NUM_1;
@@ -64,6 +69,18 @@ void handleConsole();
 #endif
 static bool gRequireAck = SIM_REQUIRE_ACK;
 
+// TX pad push-pull (default) or open-drain. The TJA1051T (VCC-referenced) needs TXD HIGH
+// >= 0.7 x VCC = 3.5 V (data sheet Rev. 9, Table 7); the S3 drives 3.3 V. In
+// open-drain the transceiver's internal TXD pull-up (to VIO = VCC, 30-260 uA) lifts
+// TXD until the S3 pad's protection diode clamps it a few hundred mV above 3.3 V.
+// A test of the threshold, not a fix: that clamp current is outside the S3's spec.
+static bool gTxOpenDrain = false;
+
+static void applyTxPad() {
+    if (gTxOpenDrain) gpio_od_enable(kCanTx);
+    else              gpio_od_disable(kCanTx);
+}
+
 static bool canStart() {
     twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
         kCanTx, kCanRx, gRequireAck ? TWAI_MODE_NORMAL : TWAI_MODE_NO_ACK);
@@ -71,14 +88,16 @@ static bool canStart() {
     twai_timing_config_t  t = TWAI_TIMING_CONFIG_500KBITS();
     twai_filter_config_t  f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
     if (twai_driver_install(&g, &t, &f) != ESP_OK) return false;
+    applyTxPad();
     return twai_start() == ESP_OK;
 }
 
 static void canRestart() {
     twai_stop();
     twai_driver_uninstall();
-    Serial.printf("CAN: %s (%s)\n", canStart() ? "restarted" : "restart FAILED",
-                  gRequireAck ? "NORMAL, frames resent until acked" : "NO_ACK");
+    Serial.printf("CAN: %s (%s, TX %s)\n", canStart() ? "restarted" : "restart FAILED",
+                  gRequireAck ? "NORMAL, frames resent until acked" : "NO_ACK",
+                  gTxOpenDrain ? "open-drain" : "push-pull");
 }
 
 // Recover from bus-off if the error counter tripped. Called periodically during playback.
@@ -303,6 +322,10 @@ static void processCommand(const char* cmd) {
         gRequireAck = strcmp(cmd, "ack on") == 0;
         canRestart();
 
+    } else if (strcmp(cmd, "od on") == 0 || strcmp(cmd, "od off") == 0) {
+        gTxOpenDrain = strcmp(cmd, "od on") == 0;
+        canRestart();
+
     } else if (strcmp(cmd, "status") == 0) {
         Serial.printf("file=%s  loop=%s  speed=%.2f  playing=%s  ack=%s\n",
                       gFile[0] ? gFile : "(none)",
@@ -310,6 +333,7 @@ static void processCommand(const char* cmd) {
                       gSpeed,
                       gPlaying ? "yes" : "no",
                       gRequireAck ? "required" : "not required");
+        Serial.printf("TX pad=%s\n", gTxOpenDrain ? "open-drain" : "push-pull");
         twai_status_info_t s;
         if (twai_get_status_info(&s) == ESP_OK) {
             const char* states[] = {"STOPPED","RUNNING","BUS_OFF","RECOVERING"};
@@ -319,22 +343,36 @@ static void processCommand(const char* cmd) {
                           s.tx_failed_count, s.rx_missed_count);
         }
 
-    } else if (strcmp(cmd, "txtest") == 0) {
+    } else if (strcmp(cmd, "txtest") == 0 || strcmp(cmd, "txtest od") == 0) {
         // Drive TXD low by hand with the TWAI driver off and read RXD back: a working
         // transceiver echoes TXD (low = dominant). Sample only briefly after each edge,
-        // well inside the TJA1051's TXD dominant time-out: that turns the driver off
-        // once TXD has been low for a few ms, so a slow or static check reads
-        // recessive even on a good chip.
+        // well inside the TJA1051's TXD dominant time-out (0.3-5 ms): that turns the
+        // driver off and only resets when TXD is seen HIGH, so a slow or static check
+        // reads recessive even on a good chip.
+        // "txtest od" drives TX open-drain: TXD HIGH then comes from the transceiver's
+        // pull-up (above 3.3 V), which separates "3.3 V isn't HIGH to this chip" from
+        // other faults.
+        const bool od = strcmp(cmd, "txtest od") == 0;
         gStopRequest = true;
         gPlaying     = false;
         twai_stop();
         twai_driver_uninstall();
         pinMode(kCanRx, INPUT);
-        pinMode(kCanTx, OUTPUT);
+        pinMode(kCanTx, od ? OUTPUT_OPEN_DRAIN : OUTPUT);
         digitalWrite(kCanTx, HIGH);
         delay(2);
-        int highLows = 0, lowLows = 0, firstLowUs = -1;
-        for (int i = 0; i < 200; ++i) highLows += gpio_get_level(kCanRx) == 0;
+        Serial.printf("txtest: TX %s\n", od ? "open-drain" : "push-pull");
+        // The TX pad's input stays enabled in both modes, so it can be read back: a pad
+        // that reads LOW while set HIGH is held down (a damaged GPIO1, or TXD shorted).
+        // Open-drain and released, only the transceiver's pull-up lifts it.
+        int highLows = 0, lowLows = 0, firstLowUs = -1, padHigh = 0, padLow = 0;
+        int neverRose = 0;
+        uint32_t riseMin = UINT32_MAX, riseMax = 0;
+        const uint32_t kRiseLimitCycles = 200u * ESP.getCpuFreqMHz();  // 200 us
+        for (int i = 0; i < 200; ++i) {
+            highLows += gpio_get_level(kCanRx) == 0;
+            padHigh  += gpio_get_level(kCanTx) == 1;
+        }
         for (int rep = 0; rep < 20; ++rep) {
             int64_t t0 = esp_timer_get_time();
             gpio_set_level(kCanTx, 0);
@@ -343,12 +381,66 @@ static void processCommand(const char* cmd) {
                 lowLows += low;
                 if (low && firstLowUs < 0) firstLowUs = (int)(esp_timer_get_time() - t0);
             }
+            padLow += gpio_get_level(kCanTx) == 0;
+            uint32_t c0 = esp_cpu_get_cycle_count();
             gpio_set_level(kCanTx, 1);
+            if (od) {
+                // Released from LOW, only a pull-up on the far side brings the pad back
+                // up; a pad that stays LOW has nothing pulling it (an open TX wire).
+                uint32_t dt;
+                while ((dt = esp_cpu_get_cycle_count() - c0) < kRiseLimitCycles &&
+                       gpio_get_level(kCanTx) == 0) {}
+                if (dt >= kRiseLimitCycles) ++neverRose;
+                else { riseMin = min(riseMin, dt); riseMax = max(riseMax, dt); }
+            }
             delayMicroseconds(200);
+        }
+        Serial.printf("txtest: TX pad reads HIGH %d/200 when %s, LOW %d/20 when driven low\n",
+                      padHigh, od ? "released" : "driven high", padLow);
+        if (od) {
+            const float nsPerCycle = 1000.0f / (float)ESP.getCpuFreqMHz();
+            if (neverRose == 20)
+                Serial.println("txtest: TX pad never rose after release (200 us): nothing pulls TXD up");
+            else
+                Serial.printf("txtest: TX pad rose after release in %.0f-%.0f ns, %d/20 never rose\n",
+                              riseMin * nsPerCycle, riseMax * nsPerCycle, neverRose);
         }
         Serial.printf("txtest: TXD HIGH -> RXD low %d/200 (want 0)\n", highLows);
         Serial.printf("txtest: TXD LOW  -> RXD low %d/1000 (want ~1000), first low after %d us\n",
                       lowLows, firstLowUs);
+        canRestart();
+
+    } else if (strcmp(cmd, "wiretest") == 0) {
+        // Are TX and RX crossed at the module? Drive the RX pin (D4, through the 10k)
+        // and read the TX pin (D0) as an input. Wired right, D4 only loads RXD through
+        // 10k and D0 sits HIGH on the transceiver's TXD pull-up. Crossed, D4 pulls TXD
+        // low through 10k against that pull-up, the chip goes dominant, and its RXD
+        // drags D0 LOW. Currents stay under 1 mA either way.
+        gStopRequest = true;
+        gPlaying     = false;
+        twai_stop();
+        twai_driver_uninstall();
+        pinMode(kCanTx, INPUT);
+        pinMode(kCanRx, OUTPUT);
+        digitalWrite(kCanRx, HIGH);
+        delay(2);
+        int idleLows = 0, pulseLows = 0, firstLowUs = -1;
+        for (int i = 0; i < 200; ++i) idleLows += gpio_get_level(kCanTx) == 0;
+        for (int rep = 0; rep < 20; ++rep) {
+            int64_t t0 = esp_timer_get_time();
+            gpio_set_level(kCanRx, 0);
+            for (int i = 0; i < 50; ++i) {
+                bool low = gpio_get_level(kCanTx) == 0;
+                pulseLows += low;
+                if (low && firstLowUs < 0) firstLowUs = (int)(esp_timer_get_time() - t0);
+            }
+            gpio_set_level(kCanRx, 1);
+            delayMicroseconds(200);
+        }
+        pinMode(kCanRx, INPUT);
+        Serial.printf("wiretest: D4 HIGH -> D0 low %d/200\n", idleLows);
+        Serial.printf("wiretest: D4 LOW  -> D0 low %d/1000, first low after %d us "
+                      "(0 = not crossed; ~1000 = crossed)\n", pulseLows, firstLowUs);
         canRestart();
 
     } else if (strcmp(cmd, "txsquare") == 0) {
@@ -409,7 +501,10 @@ static void processCommand(const char* cmd) {
         Serial.println("  maxgap <ms>     cap inter-frame gaps (default 1000)");
         Serial.println("  ack on|off      require acks like a real ECU (default off)");
         Serial.println("  status          show current config");
-        Serial.println("  txtest          stop, drive TXD by hand, check RXD echoes it");
+        Serial.println("  txtest [od]     stop, drive TXD by hand, check RXD echoes it");
+        Serial.println("                  (od: TX open-drain, TXD HIGH from the transceiver)");
+        Serial.println("  od on|off       TX pad open-drain for playback too (a test)");
+        Serial.println("  wiretest        check TX/RX aren't crossed at the module");
         Serial.println("  txsquare        5 kHz square wave on TXD for a meter; any key stops");
         Serial.println("  txlow           hold TXD low; txrelease restarts CAN");
 
