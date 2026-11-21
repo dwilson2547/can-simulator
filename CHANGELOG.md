@@ -20,6 +20,8 @@
   time-out, so it read recessive on any chip; fixed 2026-11-20.
 - `txlow` holds TXD low; `txrelease` restarts CAN. Only TXD and RXD at the pins mean
   anything while it holds: the dominant time-out releases the bus within ms.
+- `txsquare`: 5 kHz square wave on TXD (100 µs low), under the dominant time-out, so a DC
+  meter reads averages on TXD, CANH, CANL and RXD. Any key stops it.
 
 ### Hardware
 - **The sim stopped getting frames onto the bus (2026-11-17); cause unknown.** Every

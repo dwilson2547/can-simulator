@@ -350,6 +350,36 @@ static void processCommand(const char* cmd) {
                       lowLows, firstLowUs);
         canRestart();
 
+    } else if (strcmp(cmd, "txsquare") == 0) {
+        // Square wave on TXD: 100 us low, 100 us high, well under the TJA1051's
+        // dominant time-out, until any byte arrives on the console. A DC meter then
+        // reads averages: TXD ~1.65 V; on a driving chip CANH ~3 V, CANL ~2 V and
+        // RXD about half its high level; a chip that isn't driving stays at 2.5/2.5.
+        gStopRequest = true;
+        gPlaying     = false;
+        twai_stop();
+        twai_driver_uninstall();
+        pinMode(kCanRx, INPUT);
+        pinMode(kCanTx, OUTPUT);
+        Serial.println("txsquare: running, send any key to stop");
+        uint32_t lows = 0, samples = 0;
+        while (!Serial.available()) {
+            for (int k = 0; k < 2500; ++k) {
+                gpio_set_level(kCanTx, 0);
+                delayMicroseconds(50);
+                lows += gpio_get_level(kCanRx) == 0;
+                ++samples;
+                delayMicroseconds(50);
+                gpio_set_level(kCanTx, 1);
+                delayMicroseconds(100);
+            }
+        }
+        while (Serial.available()) Serial.read();
+        gpio_set_level(kCanTx, 1);
+        Serial.printf("txsquare: stopped, RXD low on %lu/%lu mid-pulse samples\n",
+                      (unsigned long)lows, (unsigned long)samples);
+        canRestart();
+
     } else if (strcmp(cmd, "txlow") == 0) {
         // Hold TXD low. NOT a valid check of the bus: the TJA1051's TXD dominant
         // time-out turns its driver off after a few ms, so a meter then reads
@@ -379,7 +409,8 @@ static void processCommand(const char* cmd) {
         Serial.println("  ack on|off      require acks like a real ECU (default off)");
         Serial.println("  status          show current config");
         Serial.println("  txtest          stop, drive TXD by hand, check RXD echoes it");
-        Serial.println("  txlow           hold TXD low for a meter; txrelease restarts CAN");
+        Serial.println("  txsquare        5 kHz square wave on TXD for a meter; any key stops");
+        Serial.println("  txlow           hold TXD low; txrelease restarts CAN");
 
     } else if (strlen(cmd) > 0) {
         Serial.printf("Unknown: '%s'  (type 'help')\n", cmd);
