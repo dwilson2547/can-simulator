@@ -4,8 +4,8 @@
 
 ### Changed
 - **CAN RX moved from D1 (GPIO2) to D4 (GPIO5), through a 10k/20k divider.** With two
-  different transceiver chips, the chip drove the bus (CANH about 3 V and CANL about 2 V
-  on a meter under `txsquare`), but RXD stayed at about 4 V and the S3 never read a
+  different transceiver chips, TXD, CANH and CANL read as expected for a driving chip under
+  `txsquare` (the user: "they all look good"; values not recorded), but RXD stayed at about 4 V and the S3 never read a
   dominant bit, so every frame failed with bit errors. The 2026-11-04 build did the same,
   so it isn't the firmware. Suspected cause: D1 damaged by months of RXD's high
   (about 4.1 V measured) on a 3.3 V input (⚠ unverified: RXD wasn't measured lifted off D1).
