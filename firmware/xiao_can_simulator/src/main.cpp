@@ -319,29 +319,42 @@ static void processCommand(const char* cmd) {
         }
 
     } else if (strcmp(cmd, "txtest") == 0) {
-        // Drive TXD by hand with the TWAI driver off and read RXD back: a working
-        // transceiver echoes TXD (low = dominant), whatever else is on the bus.
+        // Drive TXD low by hand with the TWAI driver off and read RXD back: a working
+        // transceiver echoes TXD (low = dominant). Sample only briefly after each edge,
+        // well inside the TJA1051's TXD dominant time-out: that turns the driver off
+        // once TXD has been low for a few ms, so a slow or static check reads
+        // recessive even on a good chip.
         gStopRequest = true;
         gPlaying     = false;
         twai_stop();
         twai_driver_uninstall();
         pinMode(kCanRx, INPUT);
         pinMode(kCanTx, OUTPUT);
-        for (int level = 1; level >= 0; --level) {
-            digitalWrite(kCanTx, level);
-            delay(5);
-            int lows = 0;
-            for (int i = 0; i < 1000; ++i) lows += digitalRead(kCanRx) == LOW;
-            Serial.printf("txtest: TXD %s -> RXD low %d/1000 (want %s)\n",
-                          level ? "HIGH (recessive)" : "LOW (dominant)", lows,
-                          level ? "0" : "1000");
-        }
         digitalWrite(kCanTx, HIGH);
+        delay(2);
+        int highLows = 0, lowLows = 0, firstLowUs = -1;
+        for (int i = 0; i < 200; ++i) highLows += gpio_get_level(kCanRx) == 0;
+        for (int rep = 0; rep < 20; ++rep) {
+            int64_t t0 = esp_timer_get_time();
+            gpio_set_level(kCanTx, 0);
+            for (int i = 0; i < 50; ++i) {
+                bool low = gpio_get_level(kCanRx) == 0;
+                lowLows += low;
+                if (low && firstLowUs < 0) firstLowUs = (int)(esp_timer_get_time() - t0);
+            }
+            gpio_set_level(kCanTx, 1);
+            delayMicroseconds(200);
+        }
+        Serial.printf("txtest: TXD HIGH -> RXD low %d/200 (want 0)\n", highLows);
+        Serial.printf("txtest: TXD LOW  -> RXD low %d/1000 (want ~1000), first low after %d us\n",
+                      lowLows, firstLowUs);
         canRestart();
 
     } else if (strcmp(cmd, "txlow") == 0) {
-        // Hold TXD low (dominant) for measuring with a meter; any next command
-        // releases it (txtest/ack restart the driver, or send "txrelease").
+        // Hold TXD low. NOT a valid check of the bus: the TJA1051's TXD dominant
+        // time-out turns its driver off after a few ms, so a meter then reads
+        // recessive even on a good chip. Only TXD and RXD at the pins mean anything.
+        // "txrelease" restarts CAN.
         gStopRequest = true;
         gPlaying     = false;
         twai_stop();

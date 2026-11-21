@@ -14,18 +14,22 @@
 - A `[stats]` line every 2 s during playback: frames queued, transmits refused (queue
   full or driver not running), TWAI state and error counters. This is what showed the
   stopped driver above: 1 frame queued, the rest refused, `state=STOPPED`.
-- `txtest` console command: stops playback and the TWAI driver, drives TXD high then
-  low by hand, and counts how often RXD reads low. A working transceiver echoes TXD
-  (0/1000 then 1000/1000). It needs no meter on the bench.
-- `txlow` holds TXD low (dominant) for measuring with a meter; `txrelease` restarts CAN.
+- `txtest` console command: stops playback and the TWAI driver, pulses TXD low 20 times
+  for a few µs each and counts how often RXD reads low. A working transceiver echoes
+  TXD. The first version sampled 5 ms after the edge, past the TJA1051's TXD dominant
+  time-out, so it read recessive on any chip; fixed 2026-11-20.
+- `txlow` holds TXD low; `txrelease` restarts CAN. Only TXD and RXD at the pins mean
+  anything while it holds: the dominant time-out releases the bus within ms.
 
 ### Hardware
-- **The sim's transceiver driver died (2026-11-17).** Every frame failed with bit
-  errors and the sim cycled bus-off, alone on its bus too. With `txlow` holding TXD
-  low: pin 1 (TXD) 0 V, VCC 5 V, S 0 V, but CANH and CANL both 2.5 V (no dominant), and
-  RXD high. CANH-CANL 120 Ω per end, 60 Ω on the bus, so no short. User's measurements.
-  RXD read 4.1 V on this board: above the S3's rated input, so VIO isn't setting RXD to
-  3.3 V here, whatever the wiring table says. Why it died is ⚠ unverified.
+- **The sim stopped getting frames onto the bus (2026-11-17); cause unknown.** Every
+  frame failed with bus errors and the sim cycled bus-off, alone on its bus too.
+  CANH-CANL 120 Ω per end, 60 Ω on the bus, S 0 V, VCC 5 V. The "driver is dead"
+  reading from `txlow` (CANH and CANL both 2.5 V with TXD at 0 V) was not valid: the
+  TJA1051's TXD dominant time-out turns the driver off after a few ms of TXD low, so a
+  good chip reads the same. An exact replacement chip (2026-11-20) did the same, so the
+  chip is probably not the cause (⚠ unverified until `txtest` runs on it). RXD read
+  4.1 V, above the S3's rated input, so VIO isn't setting RXD to 3.3 V on this board.
 
 ## 2026-11-04
 
