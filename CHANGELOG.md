@@ -7,8 +7,11 @@
   different transceiver chips, TXD, CANH and CANL read as expected for a driving chip under
   `txsquare` (the user: "they all look good"; values not recorded), but RXD stayed at about 4 V and the S3 never read a
   dominant bit, so every frame failed with bit errors. The 2026-11-04 build did the same,
-  so it isn't the firmware. Suspected cause: D1 damaged by months of RXD's high
-  (about 4.1 V measured) on a 3.3 V input (⚠ unverified: RXD wasn't measured lifted off D1).
+  so it isn't the firmware. D1 was suspected, but **the move did not fix it**: on D4,
+  `txtest` still never reads RXD low and the sim still cycles bus-off. So D1 is not
+  shown damaged; the fault is at the transceiver module (RXD at the chip stayed about
+  4 V under `txsquare`). Kept on D4 because the divider takes RXD's 5 V-level high off
+  the S3.
   The divider gives about 2.8 V from that 4.1 V high, above the S3's 2.475 V input
   threshold (0.75 × 3.3 V), and 3.4 V if RXD ever reaches a full 5 V (within the
   3.6 V absolute maximum). 10k/18k would leave only about 0.16 V of margin at 4.1 V.
