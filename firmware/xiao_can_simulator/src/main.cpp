@@ -4,7 +4,7 @@
  * Replays SavvyCAN CSV log files from an SD card over CAN bus.
  * Wiring:
  *   CAN  — D0(GPIO1)→TJA1051T TXD, D4(GPIO5)←TJA1051T RXD through a 10k/22k divider
- *          (moved off D1/GPIO2 2026-11-20: that input stopped reading the bus)
+ *          (moved off D1/GPIO2 2026-11-20, to add the divider)
  *        — TJA1051T S pin → GND, VCC → 5V, VIO → 3.3V
  *        — 120Ω across CANH/CANL on this end of the bench bus
  *   SD   — D8(GPIO7)→SCK, D9(GPIO8)←MISO, D10(GPIO9)→MOSI, D3(GPIO4)→CS
@@ -29,7 +29,7 @@
 
 // ── Pins ──────────────────────────────────────────────────────────────────────
 static constexpr gpio_num_t kCanTx  = GPIO_NUM_1;
-static constexpr gpio_num_t kCanRx  = GPIO_NUM_5;  // D4; D1 (GPIO2) suspected damaged
+static constexpr gpio_num_t kCanRx  = GPIO_NUM_5;  // D4, behind a divider
 static constexpr uint8_t    kSdCs   = 4;
 static constexpr uint8_t    kSdSck  = 7;
 static constexpr uint8_t    kSdMiso = 8;

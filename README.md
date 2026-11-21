@@ -15,7 +15,7 @@ Bench CAN bus simulator for replaying vehicle CAN traffic without being at the c
 | XIAO pin | GPIO | TJA1051T pin | Notes |
 |---|---|---|---|
 | D0 | GPIO1 | TXD | CAN TX from MCU |
-| D4 | GPIO5 | RXD | CAN RX to MCU, through a divider: RXD → 10 kΩ → D4, D4 → 22 kΩ → GND. Was D1 (GPIO2) until 2026-11-20; that input stopped reading the bus (suspected damage from RXD's 5 V-level high, ⚠ unverified) |
+| D4 | GPIO5 | RXD | CAN RX to MCU, through a divider: RXD → 10 kΩ → D4, D4 → 22 kΩ → GND. Was D1 (GPIO2), direct, until 2026-11-20 |
 | 5V | — | VCC | Must be 5V |
 | 3.3V | — | VIO | Logic level reference |
 | GND | — | GND | |
