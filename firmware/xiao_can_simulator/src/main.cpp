@@ -3,7 +3,7 @@
  *
  * Replays SavvyCAN CSV log files from an SD card over CAN bus.
  * Wiring:
- *   CAN  — D0(GPIO1)→TJA1051T TXD, D4(GPIO5)←TJA1051T RXD through a 10k/20k divider
+ *   CAN  — D0(GPIO1)→TJA1051T TXD, D4(GPIO5)←TJA1051T RXD through a 10k/22k divider
  *          (moved off D1/GPIO2 2026-11-20: that input stopped reading the bus)
  *        — TJA1051T S pin → GND, VCC → 5V, VIO → 3.3V
  *        — 120Ω across CANH/CANL on this end of the bench bus
