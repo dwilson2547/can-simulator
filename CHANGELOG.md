@@ -1,5 +1,17 @@
 # Changelog — can_simulator
 
+## 2026-11-20
+
+### Changed
+- **CAN RX moved from D1 (GPIO2) to D4 (GPIO5), through a 10k/20k divider.** With two
+  different transceiver chips, the chip drove the bus (CANH about 3 V and CANL about 2 V
+  on a meter under `txsquare`), but RXD stayed at about 4 V and the S3 never read a
+  dominant bit, so every frame failed with bit errors. The 2026-11-04 build did the same,
+  so it isn't the firmware. Suspected cause: D1 damaged by months of RXD's high
+  (about 4.1 V measured) on a 3.3 V input (⚠ unverified: RXD wasn't measured lifted off D1).
+  The divider gives about 2.7 V from that 4.1 V high, above the S3's 2.475 V input
+  threshold (0.75 × 3.3 V).
+
 ## 2026-11-17
 
 ### Fixed
